@@ -1,0 +1,320 @@
+# -*- coding: utf-8 -*-
+import numpy as np
+import math
+from PIL import Image, ImageTk  # 导入图像处理函数库
+import tkinter as tk  # 导入GUI界面函数库
+from tkinter import filedialog  # 导入文件对话框函数库
+from tkinter.messagebox import *
+import os
+import cv2
+import matplotlib.pyplot as plt
+import joblib
+import hogcv2
+
+img_label ={
+"000":"Speed_limit_5",
+"001":"Speed_limit_15",
+"002":"Speed_limit_30",
+"003":"Speed_limit_40",
+"004":"Speed_limit_50",
+"005":"Speed_limit_60",
+"006":"Speed_limit_70",
+"007":"Speed_limit_80",
+"008":"No straight or right turn",
+"009":"No straight or left turn",
+"010":"No straight",
+"011":"No left turn",
+"012":"Do not turn left and right",
+"013":"No right turn",
+"014":"No Overhead",
+"015":"No U-turn",
+"016":"No Motor vehicle",
+"017":"No whistle",
+"018":"Unrestricted speed_40",
+"019":"Unrestricted speed_50",
+"020":"Straight or turn right",
+"021":"Straight",
+"022":"Turn left",
+"023":"Turn left or turn right",
+"024":"Turn right",
+"025":"Drive on the left side of the road",
+"026":"Drive on the right side of the road",
+"027":"Driving around the island",
+"028":"Motor vehicle driving",
+"029":"Whistle",
+"030":"Non-motorized",
+"031":"U-turn",
+"032":"Left-right detour",
+"033":"traffic light",
+"034":"Drive cautiously",
+"035":"Caution Pedestrians",
+"036":"Attention non-motor vehicle",
+"037":"Mind the children",
+"038":"Sharp turn to the right",
+"039":"Sharp turn to the left",
+"040":"Downhill steep slope",
+"041":"Uphill steep slope",
+"042":"Go slow",
+"044":"Right T-shaped cross",
+"043":"Left T-shaped cross",
+"045":"village",
+"046":"Reverse detour",
+"047":"Railway crossing-1",
+"048":"construction",
+"049":"Continuous detour",
+"050":"Railway crossing-2",
+"051":"Accident-prone road section",
+"052":"stop",
+"053":"No passing",
+"054":"No Parking",
+"055":"No entry",
+"056":"Deceleration and concession",
+"057":"Stop For Check"
+}
+# 导入模型
+from tensorflow.keras import models
+model = models.load_model('mymodel_cnn58.h5')
+clf = joblib.load('my_SVCmodel.pkl')
+global flist
+flist = []
+global N  # 定义全局变量 图像的
+N = 0
+
+
+def sliding_window(image, stepSize, windowSize):
+    for y in range(0, image.shape[0], stepSize):
+        for x in range(0, image.shape[1], stepSize):
+            yield (x, y, image[y:y + windowSize[1], x:x + windowSize[0]])
+
+
+def winslidroi(img):
+    imgs = img.copy()
+
+
+
+    # imgs=cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    w, h = 128, 128
+    scale = 1
+    rectangles = []
+    for (x, y, roi) in sliding_window(img, 48, (w, h)):
+        rx, ry, rx2, ry2 = int(x * scale), int(y * scale), int((x + w) * scale), int((y + h) * scale)
+        temp = img[y:y + h, x:x + w]
+        temp = cv2.resize(temp, (64, 64))
+        hogvect = hogcv2.myhogvect(temp)
+        y = clf.predict([hogvect])
+        if (y[0] == 1):
+            cv2.rectangle(imgs, (rx, ry), (rx2, ry2), (0, 255, 0), 1)
+    return imgs
+
+def predrect(img,rectimg,rects):
+    x_test=np.zeros((1,64,64,3))
+    tspred=[]
+    for k in range(len(rectimg)):
+        hogvect=hogcv2.myhogvect(rectimg[k])
+        y=clf.predict([hogvect])
+        if(y[0]==1):
+            (x,y,w,h)=rects[k]
+            cv2.rectangle(img,(x,y),(x+w,y+h),(0,255,0),3)
+            img0=cv2.resize(rectimg[k],(64,64))
+            img0=img0/255
+            x_test[0,:,:,:]=img0
+            yy=model.predict(x_test)#获得预测结果概率矩阵
+            y1=np.argmax(yy,axis=1)
+            pred=img_label[str(y1[0]).zfill(3)]
+            cv2.putText(img,pred,(x,y ),cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,0),2)
+    return img
+
+
+def mytsfun(img1):
+    img = img1.copy()
+
+    # Imglist=[]
+
+    wmax = 500
+    wmin = 50
+    hmax = wmax
+    hmin = wmin
+    hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    rectimg = []
+    rects = []
+    blue_lower = np.array([100, 50, 50])
+    blue_upper = np.array([124, 255, 255])
+    mask = cv2.inRange(hsv, blue_lower, blue_upper)
+    # 腐蚀膨胀
+    mask = cv2.dilate(mask, None, iterations=1)
+    erode = cv2.erode(mask, None, iterations=2)
+    dilate = cv2.dilate(erode, None, iterations=5)
+    contours, hierarchy = cv2.findContours(dilate.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # print('总轮廓=', len(contours))
+    for i in contours:
+
+        x, y, w, h = cv2.boundingRect(i)
+        if (wmin < w < wmax and hmin < h < hmax and abs(w - h) / (w + h) < 0.3):
+            # 裁剪矩形并保存图片
+            # a += 1
+            # Imglist.append([x,y,w,h])
+            temp = img[y:y + h, x:x + w]
+            rectimg.append(temp)
+            rects.append([x, y, w, h])
+    yellow_lower = np.array([15, 45, 25])
+    yellow_upper = np.array([50, 255, 255])
+    mask = cv2.inRange(hsv, yellow_lower, yellow_upper)
+    # 腐蚀膨胀
+    mask = cv2.dilate(mask, None, iterations=1)
+    erode = cv2.erode(mask, None, iterations=2)
+    dilate = cv2.dilate(erode, None, iterations=5)
+    # 提取轮廓
+    contours, hierarchy = cv2.findContours(dilate.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for i in contours:
+
+        x, y, w, h = cv2.boundingRect(i)
+        if (wmin < w < wmax and hmin < h < hmax and abs(w - h) / (w + h) < 0.3):
+            # 裁剪矩形并保存图片
+            # a += 1
+            # Imglist.append([x,y,w,h])
+            temp = img[y:y + h, x:x + w]
+            rectimg.append(temp)
+            rects.append([x, y, w, h])
+    red_lower = np.array([1, 43, 46])
+    red_upper = np.array([10, 255, 255])
+    red2_lower = np.array([156, 43, 46])
+    red2_upper = np.array([180, 255, 255])
+    mask = cv2.inRange(hsv, red_lower, red_upper)
+    mask2 = cv2.inRange(hsv, red2_lower, red2_upper)
+    mask = mask + mask2
+    # cv2.imshow('mask',mask)
+    mask = cv2.dilate(mask, None, iterations=1)
+    erode = cv2.erode(mask, None, iterations=2)
+    dilate = cv2.dilate(erode, None, iterations=5)
+    # cv2.imshow('dilate',dilate)
+
+    contours, hierarchy = cv2.findContours(dilate.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    for i in contours:
+
+        x, y, w, h = cv2.boundingRect(i)
+        if (wmin < w < wmax and hmin < h < hmax and abs(w - h) / (w + h) < 0.3):
+            # 裁剪矩形并保存图片
+            # a += 1
+            # Imglist.append([x,y,w,h])
+            temp = img[y:y + h, x:x + w]
+            rectimg.append(temp)
+            rects.append([x, y, w, h])
+    img = predrect(img, rectimg, rects)
+    # 放大到指定尺寸
+    # temp = cv2.resize(img, (128, 128))
+    # cv2.rectangle(img, (x - 5, y - 5), (x + w + 5, y + h + 5), (0, 255, 0), 2)
+    return img
+
+
+def openfile():
+    global flist
+    path = inp1.get()
+    img_files = os.listdir(path)
+    imgnum = len(img_files)
+    for k in range(imgnum):
+        imgfile = img_files[k]
+        if (os.path.splitext(imgfile)[1] == '.png'):
+            flist.append(os.path.join(path, imgfile))
+
+    imgnum = len(flist)
+    var.set(str(imgnum))
+
+
+def nextimg():
+    global flist, N
+    var.set('显示' + str(N))
+    img = cv2.imread(flist[N])
+    N = N + 1
+    if (N >= len(flist)):
+        N = 0
+    imgs = img.copy()
+
+    img = cv2.resize(img, (480, 320))
+    Img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+    imgraw = ImageTk.PhotoImage(Img)
+    rawImg.imgtk = imgraw
+    rawImg.configure(image=imgraw)
+    # 完成以下交通标志检测与识别函数///////////////////////////////////
+    imgs = mytsfun(imgs)
+
+    # imgs=cv2.cvtColor(img,cv2.COLOR_BGR2GRAY)
+    # imgs=winslidroi(imgs)
+    # //////////////////////////////////////////////////////////////
+
+    imgs = cv2.resize(imgs, (640, 480))
+    Imgs = Image.fromarray(cv2.cvtColor(imgs, cv2.COLOR_BGR2RGB))
+    imgseg = ImageTk.PhotoImage(Imgs)
+    segImg.imgtk = imgseg
+    segImg.configure(image=imgseg)
+
+    window.update()
+
+
+def showimg():
+    global flist, N
+    N = int(inp2.get())
+    img = cv2.imread(flist[N])
+    N = N + 1
+    imgs = img.copy()
+
+    img = cv2.resize(img, (480, 320))
+    Img = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+    imgraw = ImageTk.PhotoImage(Img)
+    rawImg.imgtk = imgraw
+    rawImg.configure(image=imgraw)
+
+    imgs = cv2.resize(imgs, (640, 480))
+    Imgs = Image.fromarray(cv2.cvtColor(imgs, cv2.COLOR_BGR2RGB))
+    imgseg = ImageTk.PhotoImage(Imgs)
+    segImg.imgtk = imgseg
+    segImg.configure(image=imgseg)
+
+    window.update()
+
+
+def on_close():
+    window.quit()
+    window.destroy()
+
+
+# 创建主窗口
+window = tk.Tk()
+window.title('道路交通标志检测与识别')
+window.geometry('1200x600')
+var = tk.StringVar()  # 这时文字变量储存器
+
+# 图像文件路径和第一幅图像序号，
+imgfLabel = tk.Label(window, text='图像路径', width=10, height=1)
+imgfLabel.place(relx=0.25, rely=0.0, relwidth=0.2, relheight=0.05)
+inp1 = tk.Entry(window)
+inp1.place(relx=0.28, rely=0.05, relwidth=0.2, relheight=0.05)
+inp1.insert(0, 'C:/Users/19543/Desktop/shibie/img/highway100/')
+
+inp2 = tk.Entry(window)
+inp2.place(relx=0.8, rely=0.0, relwidth=0.05, relheight=0.1)
+inp2.insert(0, str(N))
+
+imgnLabel = tk.Label(window, textvariable=var, width=20, height=1, bg='light yellow')
+imgnLabel.place(relx=0.7, rely=0.0, relwidth=0.05, relheight=0.1)
+
+openBtn = tk.Button(window, text='打开图像', width=15, height=2, command=openfile)
+openBtn.grid(row=0, column=0, padx=5, stick=tk.W + tk.E)
+nextBtn = tk.Button(window, text='顺序显示图像', width=15, height=2, command=nextimg)
+nextBtn.grid(row=0, column=1, padx=5)
+currBtn = tk.Button(window, text='显示图像', width=15, height=2, command=showimg)
+currBtn.place(relx=0.85, rely=0.0, relwidth=0.1, relheight=0.1)
+closeBtn = tk.Button(window, text="Quit", command=on_close)
+closeBtn.place(relx=0.95, rely=0.0, relwidth=0.05, relheight=0.1)
+
+# image_frame///////////////////////////////////////////////////////
+rawImg = tk.Label(window, width=480, height=480, bg='light yellow')
+rawImg.place(x=0, y=80)
+segImg = tk.Label(window, width=640, height=480, bg='light green')
+segImg.place(x=550, y=80)
+
+window.mainloop()
+
+
+#
