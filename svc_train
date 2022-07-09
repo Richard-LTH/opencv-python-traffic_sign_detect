@@ -1,0 +1,128 @@
+
+import numpy as np
+from sklearn.svm import SVC
+import joblib
+from sklearn.metrics import roc_curve, auc
+import matplotlib.pyplot as plt
+import cv2
+import os
+import tensorflow as tf
+import pickle
+def negfiles(path):
+   flist=[]  
+   img_files = os.listdir(path)
+   imgnum=len(img_files)
+   images=[]   
+   for k in range(imgnum):
+       imgfile=img_files[k]
+       if ( os.path.splitext(imgfile)[1] == '.png'):        
+          flist.append(os.path.join(path, imgfile)) 
+   return flist
+
+def posfiles(path):
+   flist=[]  
+   img_files = os.listdir(path)
+   imgnum=len(img_files)
+   images=[]   
+   for k in range(0,imgnum):
+       imgfile=img_files[k]
+       if ( os.path.splitext(imgfile)[1] == '.png'):        
+          flist.append(os.path.join(path, imgfile)) 
+   return flist
+  
+
+def gethogs(fpa):
+    labels = []
+    hogs = []
+    w=64
+    h=64
+    winSize = (w,h)
+    blockSize = (16,16)
+    blockStride = (8,8)
+    cellSize = (8,8)
+    nbins = 9
+    for file in fpa:
+        img = cv2.imread(file,0)
+        if(img.shape[0]!=h or img.shape[1]!=w):
+            img=cv2.resize(img,(64,64))
+        img_norm = np.zeros_like(img)
+        real_show = cv2.normalize(img, dst=img_norm, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+               
+        #定义对象hog，同时输入定义的参数，剩下的默认即可
+        hog = cv2.HOGDescriptor(winSize,blockSize,blockStride,cellSize,nbins)
+        winStride = (8,8)
+        padding = (0,0)
+        hogcv2 = hog.compute(img_norm, winStride, padding).reshape((-1,))
+        hogs.append(hogcv2)
+    return np.array(hogs)
+
+def svm_train(hog_features, labels, save_path="./svm_model.pkl"):
+
+    clf = SVC(C=10, tol=1e-3, probability = True)
+    clf.fit(hog_features, labels)
+    joblib.dump(clf, save_path)
+    print ("finished.")
+
+def svm_test(svm_model, hog_feature, labels):
+    clf = joblib.load(svm_model)
+    accuracy = clf.score(hog_feature, labels)
+    return accuracy
+
+def plot_roc_auc(clf, x_test):
+    y_test = clf.predict(x_test)
+    y_score = clf.decision_function(x_test)
+    fpr, tpr, threshold = roc_curve(y_test, y_score)
+    roc_auc = auc(fpr, tpr)
+    plt.figure()
+    plt.plot(fpr, tpr)
+    plt.plot([0,1], [1,0])
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')  
+    plt.ylabel('True Positive Rate')  
+    plt.title('Receiver operating characteristic example')  
+
+if __name__ =="__main__":
+    pathneg = 'C:/Users/19543/Desktop/shibie/img/after_cut/negsign'
+    pathpos='C:/Users/19543/Desktop/shibie/img/select_sign/'
+    negfnames=negfiles(pathneg)
+    posfnames=posfiles(pathpos)
+    X=gethogs(negfnames)
+    Y=np.zeros((X.shape[0]))
+    X1=gethogs(posfnames)
+    Y1=np.ones((X1.shape[0]))
+    X=np.vstack((X,X1))
+    Y=np.hstack((Y,Y1))
+    
+    from sklearn.model_selection import train_test_split
+    x_train, x_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=4)
+    
+    from sklearn.svm import SVC
+    clf = SVC(class_weight='balanced')#类标签平衡策略
+    clf.fit(x_train, y_train)
+    y1=clf.predict(x_test) #对测试数据进行预测，并获得预测结果
+    r=y1-y_test            #预测值与真实值相减
+    v=len(r[r==0])/len(y1)  #预测值与真实值相减为0，即预测准确，统计其准确率
+    print('预测准确率： ',v)  #
+
+    model_path = "my_SVCmodel.pkl"
+    joblib.dump(clf, model_path)
+
+    #clf = joblib.load(model_path)
+
+
+
+
+
+'''
+    train = False
+    if train is True:
+        img_names, labels, hog_train_features = load_hog_data(hog_train_txt)
+        svm_train(hog_train_features, labels, model_path)
+    else:
+        img_names, labels, hog_test_features = load_hog_data(hog_test_txt)
+        test_accuracy = svm_test(model_path, hog_test_features, labels)
+        print ("test accuracy = ", test_accuracy)
+'''
+        
+        
