@@ -1,0 +1,44 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as ple
+from matplotlib import pyplot as plt
+
+if __name__=="__mian__":
+    img =cv2.imread('C:/Users/19543/Desktop/shibie/img/highway100/00491.png')
+    #
+    img=cv2.resize(img(64,64))
+    img_norm=np.zeros_like(img)
+    real_show =cv2.normalize(img, dst=img_norm,alpha=0,beta=255,norm_type=cv2.NORM_MINMAX)
+
+    winSize =(img_norm.shape[0],img_norm.shape[1])
+    blockSize=(16,16)
+    blockStride=(8,8)
+    cellSize=(8,8)
+    nbins=9
+    #
+    hog =cv2.HOGDescriptor(winSize,blockSize,blockStride,cellSize,nbins)
+    winStride=(8,8)
+    padding=(0,0)
+    hogcv2 =hog.compute(img_norm,winStride,padding).reshape((-1,))
+
+    print(np.array(hogcv2).shape)
+
+    plt.imshow(img_norm,'gray')
+    plt.show()
+
+def myhogvect(img):
+        img = cv2.resize(img,(64, 64))
+        img_norm = np.zeros_like(img)
+        real_show = cv2.normalize(img, dst=img_norm, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+
+        winSize = (img_norm.shape[0], img_norm.shape[1])
+        blockSize = (16, 16)
+        blockStride = (8, 8)
+        cellSize = (8, 8)
+        nbins = 9
+        #
+        hog = cv2.HOGDescriptor(winSize, blockSize, blockStride, cellSize, nbins)
+        winStride = (8, 8)
+        padding = (0, 0)
+        hogcv2 = hog.compute(img_norm, winStride, padding).reshape((-1,))
+        return hogcv2
